@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TerraScan — AI Scene Classifier</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <!-- ── Background grid ──────────────────────────────── -->
+    <div class="grid-bg"></div>
+
+    <!-- ── Header ───────────────────────────────────────── -->
+    <header>
+        <p class="subtitle-top">COMPUTER VISION · DEEP LEARNING</p>
+        <h1>What does the<br><em>landscape</em> look like?</h1>
+        <p class="description">
+            Upload any scene photograph and our neural networks will identify the
+            terrain in under a second — choose between a PyTorch or TensorFlow backbone.
+        </p>
+
+        <!-- Class badges -->
+        <div class="badges">
+            <span class="badge">🏢 Buildings</span>
+            <span class="badge">🌲 Forest</span>
+            <span class="badge">🧊 Glacier</span>
+            <span class="badge">⛰️ Mountain</span>
+            <span class="badge">🌊 Sea</span>
+            <span class="badge">🛣️ Street</span>
+        </div>
+    </header>
+
+    <!-- ── Main Card ────────────────────────────────────── -->
+    <main>
+        <div class="card">
+
+            <!-- Left: Upload -->
+            <div class="card-left">
+                <p class="step-label">01 — UPLOAD IMAGE</p>
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="imageInput" accept="image/*" hidden>
+                    <div id="uploadPlaceholder">
+                        <div class="upload-arrow">↑</div>
+                        <p class="upload-text">Drop your image here</p>
+                        <p class="upload-sub">or <span class="browse-link" id="browseBtn">browse files</span></p>
+                        <p class="upload-hint">PNG, JPG, WEBP up to 10 MB</p>
+                    </div>
+                    <img id="previewImg" src="" alt="Preview" hidden>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="card-divider"></div>
+
+            <!-- Right: Classify -->
+            <div class="card-right">
+                <p class="step-label">02 — CONFIGURE & CLASSIFY</p>
+
+                <label class="field-label">MODEL BACKBONE</label>
+                <div class="select-wrapper">
+                    <select id="modelSelect">
+                        <option value="pytorch">⚡ PyTorch (.pth)</option>
+                        <option value="tensorflow">🔷 TensorFlow (.keras)</option>
+                    </select>
+                    <span class="select-arrow">↓</span>
+                </div>
+
+                <button id="classifyBtn" disabled>
+                    Classify Scene →
+                </button>
+
+                <!-- Loading -->
+                <div id="loadingBox" hidden>
+                    <div class="spinner"></div>
+                    <p>Analysing scene…</p>
+                </div>
+
+                <!-- Result -->
+                <div id="resultBox" hidden>
+                    <div class="result-header">
+                        <span id="resultIcon" class="result-big-icon"></span>
+                        <div>
+                            <p class="result-class" id="resultClass"></p>
+                            <p class="result-confidence" id="resultConfidence"></p>
+                        </div>
+                    </div>
+                    <p class="result-fact" id="resultFact"></p>
+
+                    <!-- All class probabilities -->
+                    <div class="probs" id="probsContainer"></div>
+                </div>
+
+                <!-- Error -->
+                <div id="errorBox" hidden>
+                    <span>⚠️</span>
+                    <p id="errorMsg"></p>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- ── Footer ───────────────────────────────────────── -->
+    <footer>
+        <p>TerraScan · Built by Maimouna Ndoye · PyTorch & TensorFlow</p>
+    </footer>
+
+    <script>
+        const uploadArea   = document.getElementById('uploadArea');
+        const imageInput   = document.getElementById('imageInput');
+        const browseBtn    = document.getElementById('browseBtn');
+        const placeholder  = document.getElementById('uploadPlaceholder');
+        const previewImg   = document.getElementById('previewImg');
+        const classifyBtn  = document.getElementById('classifyBtn');
+        const loadingBox   = document.getElementById('loadingBox');
+        const resultBox    = document.getElementById('resultBox');
+        const errorBox     = document.getElementById('errorBox');
+        const modelSelect  = document.getElementById('modelSelect');
+
+        // ── Open file dialog ─────────────────────────────
+        browseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            imageInput.click();
+        });
+        uploadArea.addEventListener('click', () => imageInput.click());
+
+        // ── Drag & drop ──────────────────────────────────
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        uploadArea.addEventListener('dragleave', () =>
+            uploadArea.classList.remove('drag-over'));
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+        });
+
+        imageInput.addEventListener('change', () => {
+            if (imageInput.files[0]) handleFile(imageInput.files[0]);
+        });
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImg.src    = e.target.result;
+                previewImg.hidden = false;
+                placeholder.hidden = true;
+                classifyBtn.disabled = false;
+                resultBox.hidden  = true;
+                errorBox.hidden   = true;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // ── Classify ─────────────────────────────────────
+        classifyBtn.addEventListener('click', async () => {
+            const file = imageInput.files[0];
+            if (!file) return;
+
+            classifyBtn.disabled = true;
+            loadingBox.hidden    = false;
+            resultBox.hidden     = true;
+            errorBox.hidden      = true;
+
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('model', modelSelect.value);
+
+            try {
+                const res  = await fetch('/predict', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.error) {
+                    document.getElementById('errorMsg').textContent = data.error;
+                    errorBox.hidden = false;
+                } else {
+                    document.getElementById('resultIcon').textContent      = data.icon;
+                    document.getElementById('resultClass').textContent     = data.class.toUpperCase();
+                    document.getElementById('resultConfidence').textContent = `${data.confidence}% confidence`;
+                    document.getElementById('resultFact').textContent      = `💡 ${data.fact}`;
+
+                    // Render probability bars
+                    const container = document.getElementById('probsContainer');
+                    container.innerHTML = '';
+                    for (const [cls, prob] of Object.entries(data.all_probs)) {
+                        container.innerHTML += `
+                            <div class="prob-row">
+                                <span class="prob-label">${cls}</span>
+                                <div class="prob-bar-bg">
+                                    <div class="prob-bar-fill ${cls === data.class ? 'active' : ''}"
+                                         style="width:${prob}%"></div>
+                                </div>
+                                <span class="prob-value">${prob}%</span>
+                            </div>`;
+                    }
+                    resultBox.hidden = false;
+                }
+            } catch (err) {
+                document.getElementById('errorMsg').textContent = 'Server error. Please try again.';
+                errorBox.hidden = false;
+            }
+
+            loadingBox.hidden    = false;
+            classifyBtn.disabled = false;
+            loadingBox.hidden    = true;
+        });
+    </script>
+</body>
+</html>
